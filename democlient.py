@@ -4,7 +4,7 @@ import threading
 from tkinter import simpledialog, messagebox
 
 # --- Cấu hình Mạng ---
-HOST = '192.168.100.44'  # IP của Server
+HOST = '127.0.0.0'  # IP của Server
 PORT = 56666     # Port của Server
 client_socket = None
 nickname = None
