@@ -2,7 +2,7 @@ import socket
 import threading
 
 # --- Cấu hình Server ---
-HOST = '192.168.100.44'
+HOST = '127.0.0.0'
 PORT = 56666
 
 clients = []
