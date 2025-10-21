@@ -69,9 +69,11 @@ def update_chat_box(message):
     chat_box.configure(state="disabled")
 
 def send_message(event=None):
-    """Lấy tin nhắn từ entry và gửi đến Server."""
-    global client_socket
-    msg = entry.get()
+    """Lấy tin nhắn từ entry và gửi đến Server.
+    NOTE: thêm 'local echo' để hiển thị tin nhắn của chính người dùng ngay khi gửi,
+    phòng trường hợp server không broadcast lại cho sender."""
+    global client_socket, nickname
+    msg = entry.get().strip()
     entry.delete(0, 'end')
 
     if not msg or client_socket is None:
@@ -79,6 +81,24 @@ def send_message(event=None):
 
     try:
         client_socket.send(msg.encode('utf-8'))
+
+        # Hiển thị local echo khi gửi thành công
+        sender = nickname if nickname else "Bạn"
+        if msg.startswith("@"):
+            # Phân tích dạng "@recipient nội dung..."
+            parts = msg.split(' ', 1)
+            recipient_token = parts[0]
+            content = parts[1] if len(parts) > 1 else ""
+            recipient = recipient_token[1:] if len(recipient_token) > 1 else ""
+            # Hiển thị rõ là tin nhắn riêng
+            if content:
+                update_chat_box(f"(Bạn ➜ {recipient}) {sender}: {content}")
+            else:
+                # Nếu chỉ nhập "@tên" mà không có nội dung, hiện nguyên msg
+                update_chat_box(f"(Bạn ➜ {recipient}) {sender}: {recipient_token}")
+        else:
+            update_chat_box(f"{sender}: {msg}")
+
     except Exception:
         update_chat_box("LỖI KẾT NỐI: Không thể gửi tin nhắn.")
         if client_socket:
