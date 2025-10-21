@@ -4,7 +4,7 @@ import threading
 from tkinter import simpledialog, messagebox
 
 # --- Cấu hình Mạng ---
-HOST = '127.0.0.0'  # IP của Server
+HOST = '192.168.100.44'#IP của Server (lưu ý: thường là '127.0.0.1' nếu server chạy local)
 PORT = 56666     # Port của Server
 client_socket = None
 nickname = None
@@ -17,15 +17,15 @@ app.title("Ứng Dụng Chat Đa Người Dùng")
 app.geometry("500x500")
 
 # --- Khung Hiển Thị Người Dùng ---
-users_frame = ctk.CTkFrame(app, width=100)
+users_frame = ctk.CTkFrame(app, width=140)
 users_frame.pack(side="right", fill="y", padx=5, pady=5)
 users_label = ctk.CTkLabel(users_frame, text="Người Dùng Trực Tuyến:")
 users_label.pack(pady=5)
-user_list = ctk.CTkTextbox(users_frame, width=100, height=350, state="disabled")
+user_list = ctk.CTkTextbox(users_frame, width=140, height=350, state="disabled")
 user_list.pack(padx=5, pady=5)
 
 # --- Khung Chat ---
-chat_box = ctk.CTkTextbox(app, width=380, height=350, state="disabled")
+chat_box = ctk.CTkTextbox(app, width=320, height=350, state="disabled")
 chat_box.pack(pady=10, side="top", fill="x", padx=10) # Điều chỉnh layout để nằm trên
 
 # --- Khung Nhập Liệu ---
@@ -34,16 +34,32 @@ entry.pack(side="left", padx=10, pady=5)
 
 # --- Các Hàm Xử Lý GUI và Mạng ---
 
-def update_user_list(users_string):
-    """Cập nhật danh sách người dùng vào khung user_list."""
+def update_user_list(users):
+    """Cập nhật danh sách người dùng vào khung user_list.
+    Tham số users có thể là list[str] hoặc string (dấu phẩy phân tách)."""
+    # Chuẩn hoá input về list
+    if isinstance(users, str):
+        users_string = users.strip()
+        if users_string == "":
+            users_list = []
+        else:
+            users_list = [u.strip() for u in users_string.split(',') if u.strip()]
+    elif isinstance(users, list):
+        users_list = [u.strip() for u in users if u and u.strip()]
+    else:
+        users_list = []
+
     user_list.configure(state="normal")
     user_list.delete('1.0', 'end') # Xóa nội dung cũ
-    
-    users = users_string.split(',')
-    for user in users:
+
+    for user in users_list:
         user_list.insert('end', f"{user}\n")
-        
+
     user_list.configure(state="disabled")
+
+def clear_user_list():
+    """Xoá danh sách người dùng (ví dụ khi mất kết nối)."""
+    update_user_list([])
 
 def update_chat_box(message):
     """Cập nhật nội dung vào khung chat (an toàn cho GUI)."""
@@ -57,16 +73,19 @@ def send_message(event=None):
     global client_socket
     msg = entry.get()
     entry.delete(0, 'end')
-    
+
     if not msg or client_socket is None:
         return
 
     try:
         client_socket.send(msg.encode('utf-8'))
-    except:
+    except Exception:
         update_chat_box("LỖI KẾT NỐI: Không thể gửi tin nhắn.")
         if client_socket:
-            client_socket.close()
+            try:
+                client_socket.close()
+            except:
+                pass
         app.quit()
 
 def receive_messages():
@@ -74,31 +93,57 @@ def receive_messages():
     global client_socket, nickname
     while True:
         try:
-            message = client_socket.recv(1024).decode('utf-8')
-            
+            data = client_socket.recv(1024)
+            if not data:
+                # Server đã đóng kết nối
+                update_chat_box("--- MẤT KẾT NỐI VỚI MÁY CHỦ (server đóng kết nối) ---")
+                clear_user_list()
+                if client_socket:
+                    try:
+                        client_socket.close()
+                    except:
+                        pass
+                break
+
+            message = data.decode('utf-8')
+
             if message == 'NICK':
+                # Server yêu cầu gửi nickname
                 client_socket.send(nickname.encode('utf-8'))
-            
+
             # XỬ LÝ TIN NHẮN DANH SÁCH NGƯỜI DÙNG (#USERS)
             elif message.startswith("#USERS:"):
-                users_string = message[len("#USERS:"):]
+                users_string = message[len("#USERS:"):].strip()
                 update_user_list(users_string)
-            
+
+            # Tùy chọn: server có thể gửi thông báo join/left
+            elif message.startswith("#JOIN:"):
+                joined = message[len("#JOIN:"):].strip()
+                update_chat_box(f"--- {joined} đã tham gia ---")
+                # server tốt hơn là broadcast #USERS sau khi một client join
+            elif message.startswith("#LEFT:"):
+                left = message[len("#LEFT:"):].strip()
+                update_chat_box(f"--- {left} đã rời ---")
+                # server nên broadcast #USERS sau khi một client rời
             else:
                 update_chat_box(message)
-                
+
         except ConnectionAbortedError:
             break
-        except:
-            update_chat_box("--- ĐÃ MẤT KẾT NỐI VỚI MÁY CHỦ ---")
+        except Exception:
+            update_chat_box("--- ĐÃ MẤT KẾT NỐI VỚI MÁY CHỦ (lỗi) ---")
+            clear_user_list()
             if client_socket:
-                client_socket.close()
+                try:
+                    client_socket.close()
+                except:
+                    pass
             break
 
 def connect_to_server():
     """Xử lý việc kết nối đến Server và nhập nickname."""
     global client_socket, nickname
-    
+
     # 1. Nhập Nickname
     nickname = simpledialog.askstring("Tên Người Dùng", "Vui lòng nhập tên của bạn:", parent=app)
     if not nickname or nickname.strip() == "":
@@ -134,10 +179,12 @@ app.after(100, connect_to_server)
 def on_closing():
     if client_socket:
         try:
+            # Tùy chọn: gửi thông điệp rời nếu server hỗ trợ, ví dụ "QUIT"
+            # client_socket.send("QUIT".encode('utf-8'))
             client_socket.close()
         except:
             pass # Socket đã đóng rồi
     app.destroy()
 
-app.protocol("WM_DELETE_WINDOW", on_closing) 
+app.protocol("WM_DELETE_WINDOW", on_closing)
 app.mainloop()
